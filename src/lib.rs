@@ -51,32 +51,22 @@ pub fn challenge(pwd: &[u8], salt: Option<&[u8]>) -> Result<(BlindingFactor, Cha
         sodium_munlock(h0.as_mut_ptr() as *mut c_void, h0.len());
     }
     let mut bfac = [0u8; crypto_core_ristretto255_SCALARBYTES as usize];
-    let mut chal = [0u8; crypto_core_ristretto255_BYTES as usize];
-    let scalarmult_result = unsafe {
+    unsafe {
         crypto_core_ristretto255_scalar_random(bfac.as_mut_ptr());
-        crypto_scalarmult_ristretto255(chal.as_mut_ptr(), bfac.as_ptr(), H0.as_ptr())
     };
+    let scalarmult_result = scalarmult_ristretto255(bfac, H0);
     unsafe {
         sodium_munlock(H0.as_mut_ptr() as *mut c_void, H0.len());
     }
-    if scalarmult_result == 0 {
-        Ok((bfac, chal))
-    } else {
-        Err(SphinxError::SodiumScalarMultError)
+    match scalarmult_result {
+        Ok(chal) => Ok((bfac, chal)),
+        Err(err) => Err(err),
     }
 }
 
 pub fn respond(chal: Challenge, secret: Secret) -> Result<Response, SphinxError> {
-    let mut result = [0u8; crypto_core_ristretto255_BYTES as usize];
     validate_ristretto255_point(chal)?;
-    let scalarmult_result = unsafe {
-        crypto_scalarmult_ristretto255(result.as_mut_ptr(), secret.as_ptr(), chal.as_ptr())
-    };
-    if scalarmult_result == 0 {
-        Ok(result)
-    } else {
-        Err(SphinxError::SodiumScalarMultError)
-    }
+    scalarmult_ristretto255(secret, chal)
 }
 
 pub fn finish(pwd: &[u8], bfac: BlindingFactor, resp: Response, salt: Salt) -> Result<Rwd, SphinxError> {
@@ -141,6 +131,15 @@ fn validate_ristretto255_point(point: RistrettoPoint) -> Result<(), SphinxError>
         return Err(SphinxError::InvalidRistretto255Point);
     } else {
         return Ok(());
+    }
+}
+
+fn scalarmult_ristretto255(n: RistrettoScalar, p: RistrettoPoint) -> Result<RistrettoPoint, SphinxError> {
+    let mut result = [0u8; crypto_core_ristretto255_BYTES as usize];
+    if unsafe { crypto_scalarmult_ristretto255(result.as_mut_ptr(), n.as_ptr(), p.as_ptr()) } == 0 {
+        Ok(result)
+    } else {
+        Err(SphinxError::SodiumScalarMultError)
     }
 }
 
