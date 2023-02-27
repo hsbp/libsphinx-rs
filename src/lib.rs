@@ -17,12 +17,15 @@ pub enum SphinxError {
     InvalidRistretto255Point,
 }
 
-type Challenge = [u8; crypto_core_ristretto255_BYTES as usize];
-type Response = [u8; crypto_core_ristretto255_BYTES as usize];
-type Rwd = [u8; crypto_core_ristretto255_BYTES as usize];
-type BlindingFactor = [u8; crypto_core_ristretto255_SCALARBYTES as usize];
-type Secret = [u8; crypto_core_ristretto255_SCALARBYTES as usize];
+type RistrettoPoint = [u8; crypto_core_ristretto255_BYTES as usize];
+type RistrettoScalar = [u8; crypto_core_ristretto255_SCALARBYTES as usize];
 type Salt = [u8; crypto_pwhash_SALTBYTES as usize];
+
+type Challenge = RistrettoPoint;
+type Response = RistrettoPoint;
+type Rwd = RistrettoPoint;
+type BlindingFactor = RistrettoScalar;
+type Secret = RistrettoScalar;
 
 pub fn challenge(pwd: &[u8], salt: Option<&[u8]>) -> Result<(BlindingFactor, Challenge), SphinxError> {
     let mut h0 = [0u8; crypto_core_ristretto255_HASHBYTES as usize];
@@ -65,10 +68,8 @@ pub fn challenge(pwd: &[u8], salt: Option<&[u8]>) -> Result<(BlindingFactor, Cha
 
 pub fn respond(chal: Challenge, secret: Secret) -> Result<Response, SphinxError> {
     let mut result = [0u8; crypto_core_ristretto255_BYTES as usize];
+    validate_ristretto255_point(chal)?;
     let scalarmult_result = unsafe {
-        if crypto_core_ristretto255_is_valid_point(chal.as_ptr()) != 1 {
-            return Err(SphinxError::InvalidRistretto255Point);
-        }
         crypto_scalarmult_ristretto255(result.as_mut_ptr(), secret.as_ptr(), chal.as_ptr())
     };
     if scalarmult_result == 0 {
@@ -79,11 +80,7 @@ pub fn respond(chal: Challenge, secret: Secret) -> Result<Response, SphinxError>
 }
 
 pub fn finish(pwd: &[u8], bfac: BlindingFactor, resp: Response, salt: Salt) -> Result<Rwd, SphinxError> {
-    unsafe {
-        if crypto_core_ristretto255_is_valid_point(resp.as_ptr()) != 1 {
-            return Err(SphinxError::InvalidRistretto255Point);
-        }
-    }
+    validate_ristretto255_point(resp)?;
     let mut ir = [0u8; crypto_core_ristretto255_SCALARBYTES as usize];
     unsafe {
         if sodium_mlock(ir.as_mut_ptr() as *mut c_void, ir.len()) == -1 {
@@ -137,6 +134,14 @@ pub fn finish(pwd: &[u8], bfac: BlindingFactor, resp: Response, salt: Salt) -> R
         sodium_munlock(rwd0.as_mut_ptr() as *mut c_void, rwd0.len());
     }
     Ok(rwd)
+}
+
+fn validate_ristretto255_point(point: RistrettoPoint) -> Result<(), SphinxError> {
+    if unsafe { crypto_core_ristretto255_is_valid_point(point.as_ptr()) } != 1 {
+        return Err(SphinxError::InvalidRistretto255Point);
+    } else {
+        return Ok(());
+    }
 }
 
 #[cfg(test)]
