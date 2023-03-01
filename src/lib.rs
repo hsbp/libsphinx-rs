@@ -2,7 +2,7 @@ use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
 use curve25519_dalek::scalar::Scalar;
 use dryoc::constants;
 use dryoc::generichash::{GenericHash, Key};
-use dryoc::pwhash::{PwHash, Config};
+use dryoc::pwhash::{Config, PwHash};
 use dryoc::types::{ByteArray, StackByteArray};
 use thiserror::Error;
 
@@ -41,14 +41,24 @@ pub fn challenge(pwd: &[u8]) -> Result<(BlindingFactor, Challenge), SphinxError>
 }
 
 pub fn respond(chal: Challenge, secret: Secret) -> Result<Response, SphinxError> {
-    let point = CompressedRistretto::from_slice(&chal).decompress().ok_or(SphinxError::InvalidRistretto255Point)?;
-    let scalar = Scalar::from_canonical_bytes(secret).ok_or(SphinxError::InvalidRistretto255Scalar)?;
+    let point = CompressedRistretto::from_slice(&chal)
+        .decompress()
+        .ok_or(SphinxError::InvalidRistretto255Point)?;
+    let scalar =
+        Scalar::from_canonical_bytes(secret).ok_or(SphinxError::InvalidRistretto255Scalar)?;
     let product = point * scalar;
     Ok(*product.compress().as_bytes())
 }
 
-pub fn finish(pwd: &[u8], bfac: BlindingFactor, resp: Response, salt: Salt) -> Result<Rwd, SphinxError> {
-    let rp = CompressedRistretto::from_slice(&resp).decompress().ok_or(SphinxError::InvalidRistretto255Point)?;
+pub fn finish(
+    pwd: &[u8],
+    bfac: BlindingFactor,
+    resp: Response,
+    salt: Salt,
+) -> Result<Rwd, SphinxError> {
+    let rp = CompressedRistretto::from_slice(&resp)
+        .decompress()
+        .ok_or(SphinxError::InvalidRistretto255Point)?;
     let ir = bfac.invert();
     let mut hasher = GenericHash::new_with_defaults::<Key>(None)?;
     hasher.update(pwd);
