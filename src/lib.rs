@@ -37,7 +37,7 @@ impl From<dryoc::Error> for SphinxError {
 
 type MyRistrettoPoint = [u8; 32];
 type MyRistrettoScalar = [u8; 32];
-type Salt = [u8; CRYPTO_PWHASH_SALTBYTES as usize];
+type Salt = [u8; CRYPTO_PWHASH_SALTBYTES];
 
 type Challenge = MyRistrettoPoint;
 type Response = MyRistrettoPoint;
@@ -260,7 +260,7 @@ impl Proof {
         input.write_u32::<LittleEndian>(self.nonce).unwrap();
         input.write_u32::<LittleEndian>(0).unwrap();
         let mut buf = [0u8; CRYPTO_GENERICHASH_BLAKE2B_BYTES];
-        let mut blocks = vec![0u32; (self.k + 1) as usize];
+        let mut blocks = vec![0u32; self.k + 1];
         for item in &self.inputs {
             let elem = item.to_le_bytes();
             for (j, b) in elem.iter().enumerate() {
@@ -277,9 +277,9 @@ impl Proof {
 }
 
 pub fn deserialize_equihash(n: usize, k: usize, seed: Vec<u8>, serialized: &[u8]) -> Result<Proof, EquihashError> {
-    let digitbits = (n / (k + 1)) as usize;
+    let digitbits = n / (k + 1);
     let proofsize = (1 << k) as usize;
-    let solsize = (proofsize * (digitbits + 1) / 8) as usize;
+    let solsize = proofsize * (digitbits + 1) / 8;
     if solsize + 4 != serialized.len() {
         return Err(EquihashError::InvalidLength);
     }
@@ -321,7 +321,7 @@ mod tests {
     fn it_works() {
         let pwd = b"shitty password";
         let salt = {
-            let mut salt = [0u8; CRYPTO_PWHASH_SALTBYTES as usize];
+            let mut salt = [0u8; CRYPTO_PWHASH_SALTBYTES];
             salt[0] = 1;
             salt
         };
