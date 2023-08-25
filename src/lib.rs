@@ -156,11 +156,11 @@ impl<'a> Solver<'a> {
         let mut new_forks: Vec<Fork> = Vec::with_capacity(max_new_collissions);
         let mut collission_list: Vec<[Tuple ; LIST_LENGTH]> = vec![std::array::from_fn(|_| Tuple { blocks: vec![0u32; new_blocks], ..Default::default() }); table_len];
         let mut new_filled_list = vec![0usize; table_len];
-        for (i, filled_list_elem) in self.filled_list.iter().enumerate() {
+        for (filled_list_elem, tuple_list_i) in self.filled_list.iter().zip(self.tuple_list.iter()) {
             for j in 0..*filled_list_elem {
                 for m in (j + 1)..*filled_list_elem {
-                    let tl1 = &self.tuple_list[i][j];
-                    let tl2 = &self.tuple_list[i][m];
+                    let tl1 = &tuple_list_i[j];
+                    let tl2 = &tuple_list_i[m];
                     let new_index = (tl1.blocks[0] ^ tl2.blocks[0]) as usize;
                     let new_fork = (tl1.reference, tl2.reference);
                     if store {
