@@ -6,9 +6,12 @@ use dryoc::generichash::{GenericHash, Key};
 use dryoc::pwhash::{Config, PwHash};
 use dryoc::types::{ByteArray, StackByteArray};
 use thiserror::Error;
+use vararg::vararg;
 use std::cmp::Ordering;
 use std::io::Cursor;
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
+use strum_macros::IntoStaticStr;
+use blake2b_simd::{blake2b, Params};
 
 #[derive(Error, Debug)]
 pub enum SphinxError {
@@ -318,6 +321,39 @@ pub fn deserialize_equihash(n: usize, k: usize, seed: Vec<u8>, serialized: &[u8]
     Ok(Proof { n, k, seed, nonce, inputs: sol, digitbits })
 }
 
+#[derive(Eq, PartialEq, IntoStaticStr, Copy, Clone)]
+enum DerivationContext {
+    #[strum(serialize = "sphinx password context")]
+    Password,
+    #[strum(serialize = "sphinx host salt")]
+    Salt,
+    #[strum(serialize = "sphinx check digit context")]
+    CheckDigit,
+    #[strum(serialize = "sphinx signing key")]
+    Signing,
+    #[strum(serialize = "sphinx encryption key")]
+    Encryption,
+}
+
+#[vararg]
+fn derive<const L: usize>(context: DerivationContext, inputs: [&[u8]; L]) -> Vec<u8> {
+    let init: &str = context.into();
+    let bytes = init.as_bytes().to_vec();
+    inputs.iter().fold(bytes, |acc, msg| Params::new()
+        .hash_length(if context == DerivationContext::CheckDigit { 1 } else { CRYPTO_GENERICHASH_BLAKE2B_BYTES })
+        .key(&msg)
+        .to_state()
+        .update(&acc)
+        .finalize()
+        .as_bytes()
+        .to_vec())
+}
+
+fn calculate_check_digit(rwd: &[u8]) -> u8 {
+    let output = derive!(DerivationContext::CheckDigit, rwd);
+    output[0]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -355,5 +391,10 @@ mod tests {
         let our_proof = eq.find_proof().unwrap();
         our_proof.verify().unwrap();
         assert_eq!(our_proof.serialize(), serialized);
+    }
+
+    #[test]
+    fn check_digit() {
+        assert_eq!(calculate_check_digit(b"bar"), 0x86u8);
     }
 }
