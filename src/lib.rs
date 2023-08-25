@@ -6,6 +6,7 @@ use dryoc::generichash::{GenericHash, Key};
 use dryoc::pwhash::{Config, PwHash};
 use dryoc::types::{ByteArray, StackByteArray};
 use thiserror::Error;
+use std::cmp::Ordering;
 use std::io::Cursor;
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 
@@ -292,21 +293,25 @@ pub fn deserialize_equihash(n: usize, k: usize, seed: Vec<u8>, serialized: &[u8]
 
     while let Ok(result) = rdr.read_u8() {
         let next_byte = result as u32;
-        if bits_left > 8 {
-            sol[j] <<= 8;
-            bits_left -= 8;
-            sol[j] |= next_byte;
-        } else if bits_left == 8 {
-            sol[j] <<= 8;
-            sol[j] |= next_byte;
-            bits_left = digitbits + 1;
-            j += 1;
-        } else {
-            sol[j] <<= bits_left;
-            sol[j] |= (next_byte >> (8 - bits_left)) & ((1 << bits_left) - 1);
-            j += 1;
-            sol[j] = next_byte & ((1 << (8 - bits_left)) - 1);
-            bits_left = (digitbits + 1) - (8 - bits_left);
+        match bits_left.cmp(&8) {
+            Ordering::Greater => {
+                sol[j] <<= 8;
+                bits_left -= 8;
+                sol[j] |= next_byte;
+            },
+            Ordering::Equal => {
+                sol[j] <<= 8;
+                sol[j] |= next_byte;
+                bits_left = digitbits + 1;
+                j += 1;
+            },
+            Ordering::Less => {
+                sol[j] <<= bits_left;
+                sol[j] |= (next_byte >> (8 - bits_left)) & ((1 << bits_left) - 1);
+                j += 1;
+                sol[j] = next_byte & ((1 << (8 - bits_left)) - 1);
+                bits_left = (digitbits + 1) - (8 - bits_left);
+            },
         }
     }
 
