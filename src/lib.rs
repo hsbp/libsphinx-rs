@@ -339,8 +339,9 @@ enum DerivationContext {
 fn derive<const L: usize>(context: DerivationContext, inputs: [&[u8]; L]) -> Vec<u8> {
     let init: &str = context.into();
     let bytes = init.as_bytes().to_vec();
+    let length = if context == DerivationContext::CheckDigit { 1 } else { CRYPTO_GENERICHASH_BLAKE2B_BYTES };
     inputs.iter().fold(bytes, |acc, msg| Params::new()
-        .hash_length(if context == DerivationContext::CheckDigit { 1 } else { CRYPTO_GENERICHASH_BLAKE2B_BYTES })
+        .hash_length(length)
         .key(&msg)
         .to_state()
         .update(&acc)
