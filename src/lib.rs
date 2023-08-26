@@ -4,6 +4,7 @@ use dryoc::classic::crypto_generichash::crypto_generichash;
 use dryoc::constants::{CRYPTO_PWHASH_SALTBYTES, CRYPTO_GENERICHASH_BLAKE2B_BYTES};
 use dryoc::generichash::{GenericHash, Key};
 use dryoc::pwhash::{Config, PwHash};
+use dryoc::rng::copy_randombytes;
 use dryoc::types::{ByteArray, StackByteArray};
 use enumset::__internal::EnumSetTypePrivate;
 use enumset::{EnumSetType, EnumSet};
@@ -367,6 +368,12 @@ enum CharacterClass {
 }
 
 type XorMask = [u8; XOR_MASK_BYTES];
+
+fn generate_random_xormask() -> XorMask {
+    let mut result = [0u8; XOR_MASK_BYTES];
+    copy_randombytes(&mut result);
+    result
+}
 
 #[derive(Eq, PartialEq, Debug)]
 struct Rule {
