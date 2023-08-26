@@ -5,9 +5,13 @@ use dryoc::constants::{CRYPTO_PWHASH_SALTBYTES, CRYPTO_GENERICHASH_BLAKE2B_BYTES
 use dryoc::generichash::{GenericHash, Key};
 use dryoc::pwhash::{Config, PwHash};
 use dryoc::types::{ByteArray, StackByteArray};
+use enumset::__internal::EnumSetTypePrivate;
+use enumset::{EnumSetType, EnumSet};
+use num_bigint::BigUint;
 use thiserror::Error;
 use vararg::vararg;
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::io::Cursor;
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use strum_macros::IntoStaticStr;
@@ -355,8 +359,80 @@ fn calculate_check_digit(rwd: &[u8]) -> u8 {
     output[0]
 }
 
+#[derive(EnumSetType, Debug)]
+enum CharacterClass {
+    Uppercase = 0,
+    Lowercase = 1,
+    Digits = 2,
+}
+
+type XorMask = [u8; XOR_MASK_BYTES];
+
+#[derive(Eq, PartialEq, Debug)]
+struct Rule {
+    char_classes: EnumSet<CharacterClass>,
+    symbols: HashSet<char>,
+    size: u32,
+    xor_mask: XorMask,
+    check_digit: u8,
+}
+
+const SYMBOL_SET: &str = " !\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~";
+const RULE_SHIFT: usize = 7;
+const XOR_MASK_BYTES: usize = 32;
+const SYMBOL_OFFSET: usize = CharacterClass::VARIANT_COUNT as usize + RULE_SHIFT;
+const CHECK_DIGIT_MASK: u8 = 0x1F;
+const CHECK_DIGIT_SHIFT: usize = SYMBOL_OFFSET + SYMBOL_SET.len();
+const RULE_BYTES_LENGTH: usize = 38;
+const SIZE_MASK: u32 = 0x7F;
+
+#[derive(Error, Debug)]
+pub enum RuleError {
+    #[error("invalid rule length")]
+    InvalidLength,
+}
+
+impl Rule {
+    fn serialize(&self) -> Vec<u8> {
+        let cc = (self.char_classes.as_u32() << RULE_SHIFT) | (self.size & SIZE_MASK);
+        let mut result: BigUint = cc.into();
+        for (n, c) in SYMBOL_SET.chars().enumerate() {
+            if self.symbols.contains(&c) {
+                result.set_bit((n + SYMBOL_OFFSET) as u64, true);
+            }
+        }
+        result |= Into::<BigUint>::into(((self.check_digit & CHECK_DIGIT_MASK) as u64) << CHECK_DIGIT_SHIFT);
+        let blob = result.to_bytes_be();
+        match (blob.len() + XOR_MASK_BYTES).cmp(&RULE_BYTES_LENGTH) {
+            Ordering::Less => std::iter::repeat(0u8).take(RULE_BYTES_LENGTH - XOR_MASK_BYTES - blob.len())
+                .chain(blob.iter().copied())
+                .chain(self.xor_mask.iter().copied()).collect(),
+            Ordering::Equal => blob.iter().chain(self.xor_mask.iter()).copied().collect(),
+            Ordering::Greater => blob.iter().skip(blob.len() - (RULE_BYTES_LENGTH - XOR_MASK_BYTES))
+                .chain(self.xor_mask.iter()).copied().collect(),
+        }
+    }
+
+    fn parse(serialized: &[u8]) -> Result<Self, RuleError> {
+        if serialized.len() < RULE_BYTES_LENGTH {
+            return Err(RuleError::InvalidLength);
+        }
+        let xor_mask_offset = serialized.len() - XOR_MASK_BYTES;
+        let xor_mask: XorMask = serialized[xor_mask_offset..serialized.len()].try_into().unwrap();
+        let bn = BigUint::from_bytes_be(&serialized[..xor_mask_offset]);
+        let size: u32 = (bn.clone() & Into::<BigUint>::into(SIZE_MASK)).try_into().unwrap();
+        let check_digit: u8 = ((bn.clone() >> CHECK_DIGIT_SHIFT) & Into::<BigUint>::into(CHECK_DIGIT_MASK)).try_into().unwrap();
+        let char_classes = EnumSet::<CharacterClass>::from_u8(((bn.clone() >> RULE_SHIFT) & Into::<BigUint>::into(7u32)).try_into().unwrap());
+        let symbols: HashSet<char> = SYMBOL_SET.chars().enumerate().filter_map(|(n, c)|
+            if bn.bit((SYMBOL_OFFSET + n) as u64) { Some(c) } else { None }).collect();
+        Ok(Rule { char_classes, symbols, size, xor_mask, check_digit })
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use enumset::enum_set;
+
     use super::*;
 
     #[test]
@@ -397,5 +473,12 @@ mod tests {
     #[test]
     fn check_digit() {
         assert_eq!(calculate_check_digit(b"bar"), 0x86u8);
+    }
+
+    #[test]
+    fn rule_serialization() -> Result<(), RuleError> {
+        let r = Rule { char_classes: enum_set!(CharacterClass::Uppercase | CharacterClass::Digits), symbols: ".,|!".chars().collect(), size: 12, xor_mask: [b'?'; 32], check_digit: 29 };
+        assert_eq!(r, Rule::parse(&r.serialize())?);
+        Ok(())
     }
 }
