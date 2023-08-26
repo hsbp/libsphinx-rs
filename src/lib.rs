@@ -9,11 +9,13 @@ use dryoc::types::{ByteArray, StackByteArray};
 use enumset::__internal::EnumSetTypePrivate;
 use enumset::{EnumSetType, EnumSet};
 use num_bigint::BigUint;
+use num_integer::Integer;
 use thiserror::Error;
 use vararg::vararg;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::io::Cursor;
+use std::ops::{Range, Div};
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use strum_macros::IntoStaticStr;
 use blake2b_simd::{blake2b, Params};
@@ -434,7 +436,52 @@ impl Rule {
             if bn.bit((SYMBOL_OFFSET + n) as u64) { Some(c) } else { None }).collect();
         Ok(Rule { char_classes, symbols, size, xor_mask, check_digit })
     }
+
+    fn derive(&self, rwd: &[u8]) -> Result<String, DeriveError> {
+        if self.char_classes.is_empty() && self.symbols.is_empty() {
+            return Err(DeriveError::EmptyCharacterClasses);
+        }
+        let mut symbols: Vec<char> = self.symbols.iter().copied().collect();
+        symbols.sort();
+        let mut chars = CC_DERIVE_ORDER.iter()
+            .filter(|cc| self.char_classes.contains(**cc))
+            .map(character_class_range)
+            .fold(Vec::<char>::new(), |acc, range| acc.iter().copied().chain(range).collect::<Vec<char>>());
+        chars.append(&mut symbols);
+        let password = encode(rwd, &chars, self.size);
+        Ok(password)
+    }
 }
+
+fn encode(raw: &[u8], chars: &[char], size: usize) -> String {
+    let mut result = Vec::with_capacity(if size == 0 { 32 } else { size });
+    let mut v = BigUint::from_bytes_be(raw);
+    let divisor: BigUint = chars.len().into();
+    let zero: BigUint = 0u32.into();
+    while (size > 0 && result.len() < size) || (size == 0 && v != zero) {
+        let (q, rem) = v.div_rem(&divisor);
+        v = q;
+        result.push(chars[TryInto::<usize>::try_into(rem).unwrap()]);
+    }
+    result.iter().rev().collect()
+}
+
+fn character_class_range(cc: &CharacterClass) -> Range<char> {
+    match cc {
+        CharacterClass::Uppercase => 'A'..'Z',
+        CharacterClass::Lowercase => 'a'..'z',
+        CharacterClass::Digits => '0'..'9',
+    }
+}
+
+static CC_DERIVE_ORDER: &'static [CharacterClass] = &[CharacterClass::Uppercase, CharacterClass::Lowercase, CharacterClass::Digits];
+
+#[derive(Error, Debug)]
+pub enum DeriveError {
+    #[error("no character classes or symbols were enabled in the rule")]
+    EmptyCharacterClasses,
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -486,6 +533,18 @@ mod tests {
     fn rule_serialization() -> Result<(), RuleError> {
         let r = Rule { char_classes: enum_set!(CharacterClass::Uppercase | CharacterClass::Digits), symbols: ".,|!".chars().collect(), size: 12, xor_mask: [b'?'; 32], check_digit: 29 };
         assert_eq!(r, Rule::parse(&r.serialize())?);
+        Ok(())
+    }
+
+    #[test]
+    fn derivation() -> Result<(), DeriveError> {
+        let rwd = [b'x'; 32];
+        let r = Rule { char_classes: enum_set!(CharacterClass::Uppercase | CharacterClass::Digits), symbols: ".,|!".chars().collect(), size: 12, xor_mask: [b'?'; 32], check_digit: 29 };
+        let derived = r.derive(&rwd)?;
+        for c in derived.chars() {
+            assert!(r.char_classes.iter().any(|cc| character_class_range(&cc).contains(&c)) || r.symbols.contains(&c));
+        }
+        assert_eq!(r.size, derived.len());
         Ok(())
     }
 }

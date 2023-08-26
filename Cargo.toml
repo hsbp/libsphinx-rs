@@ -17,6 +17,7 @@ vararg = "0.1.1"
 blake2b_simd = "1.0.1"
 enumset = "1.1.2"
 num-bigint = "0.4.4"
+num-integer = "0.1.45"
 
 [dev-dependencies]
 hex = "0.4.3"
