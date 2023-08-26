@@ -372,7 +372,7 @@ type XorMask = [u8; XOR_MASK_BYTES];
 struct Rule {
     char_classes: EnumSet<CharacterClass>,
     symbols: HashSet<char>,
-    size: u32,
+    size: usize,
     xor_mask: XorMask,
     check_digit: u8,
 }
@@ -394,7 +394,7 @@ pub enum RuleError {
 
 impl Rule {
     fn serialize(&self) -> Vec<u8> {
-        let cc = (self.char_classes.as_u32() << RULE_SHIFT) | (self.size & SIZE_MASK);
+        let cc = (self.char_classes.as_u32() << RULE_SHIFT) | (self.size as u32 & SIZE_MASK);
         let mut result: BigUint = cc.into();
         for (n, c) in SYMBOL_SET.chars().enumerate() {
             if self.symbols.contains(&c) {
@@ -420,7 +420,7 @@ impl Rule {
         let xor_mask_offset = serialized.len() - XOR_MASK_BYTES;
         let xor_mask: XorMask = serialized[xor_mask_offset..serialized.len()].try_into().unwrap();
         let bn = BigUint::from_bytes_be(&serialized[..xor_mask_offset]);
-        let size: u32 = (bn.clone() & Into::<BigUint>::into(SIZE_MASK)).try_into().unwrap();
+        let size: usize = (bn.clone() & Into::<BigUint>::into(SIZE_MASK)).try_into().unwrap();
         let check_digit: u8 = ((bn.clone() >> CHECK_DIGIT_SHIFT) & Into::<BigUint>::into(CHECK_DIGIT_MASK)).try_into().unwrap();
         let char_classes = EnumSet::<CharacterClass>::from_u8(((bn.clone() >> RULE_SHIFT) & Into::<BigUint>::into(7u32)).try_into().unwrap());
         let symbols: HashSet<char> = SYMBOL_SET.chars().enumerate().filter_map(|(n, c)|
