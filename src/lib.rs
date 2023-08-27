@@ -46,25 +46,25 @@ impl From<dryoc::Error> for SphinxError {
     }
 }
 
-type MyRistrettoPoint = [u8; 32];
+const DECAF_255_SER_BYTES: usize = 32;
+type MyRistrettoPoint = [u8; DECAF_255_SER_BYTES];
 type MyRistrettoScalar = [u8; 32];
 type Salt = [u8; CRYPTO_PWHASH_SALTBYTES];
 
-type Challenge = MyRistrettoPoint;
+type PublicChallenge = MyRistrettoPoint;
 type Response = MyRistrettoPoint;
 type Rwd = Vec<u8>;
-type BlindingFactor = Scalar;
 type Secret = MyRistrettoScalar;
 
-pub fn challenge(pwd: &[u8]) -> Result<(BlindingFactor, Challenge), SphinxError> {
+pub fn challenge(pwd: &[u8]) -> Result<(PrivateChallenge, PublicChallenge), SphinxError> {
     let h0: StackByteArray<64> = GenericHash::hash::<_, StackByteArray<0>, _>(&pwd, None)?;
     let mut rng = rand::rngs::OsRng {};
-    let bfac = Scalar::random(&mut rng);
-    let chal = RistrettoPoint::from_uniform_bytes(h0.as_array()) * bfac;
-    Ok((bfac, *chal.compress().as_bytes()))
+    let blinding_factor = Scalar::random(&mut rng);
+    let chal = RistrettoPoint::from_uniform_bytes(h0.as_array()) * blinding_factor;
+    Ok((PrivateChallenge {blinding_factor, pwd }, *chal.compress().as_bytes()))
 }
 
-pub fn respond(chal: Challenge, secret: Secret) -> Result<Response, SphinxError> {
+pub fn respond(chal: PublicChallenge, secret: Secret) -> Result<Response, SphinxError> {
     let point = CompressedRistretto::from_slice(&chal)
         .decompress()
         .ok_or(SphinxError::InvalidRistretto255Point)?;
@@ -74,22 +74,28 @@ pub fn respond(chal: Challenge, secret: Secret) -> Result<Response, SphinxError>
     Ok(*product.compress().as_bytes())
 }
 
-pub fn finish(
-    pwd: &[u8],
-    bfac: BlindingFactor,
-    resp: Response,
-    salt: Salt,
-) -> Result<Rwd, SphinxError> {
-    let rp = CompressedRistretto::from_slice(&resp)
-        .decompress()
-        .ok_or(SphinxError::InvalidRistretto255Point)?;
-    let ir = bfac.invert();
-    let mut hasher = GenericHash::new_with_defaults::<Key>(None)?;
-    hasher.update(pwd);
-    hasher.update((rp * ir).compress().as_bytes());
-    let rwd0: StackByteArray<32> = hasher.finalize()?;
-    let rwd: PwHash<Rwd, Salt> = PwHash::hash_with_salt(&rwd0, salt, Config::interactive())?;
-    Ok(rwd.into_parts().0)
+pub struct PrivateChallenge<'a> {
+    blinding_factor: Scalar,
+    pwd: &'a [u8],
+}
+
+impl PrivateChallenge<'_> {
+    fn finish(
+        self,
+        resp: Response,
+        salt: Salt,
+    ) -> Result<Rwd, SphinxError> {
+        let rp = CompressedRistretto::from_slice(&resp)
+            .decompress()
+            .ok_or(SphinxError::InvalidRistretto255Point)?;
+        let ir = self.blinding_factor.invert();
+        let mut hasher = GenericHash::new_with_defaults::<Key>(None)?;
+        hasher.update(self.pwd);
+        hasher.update((rp * ir).compress().as_bytes());
+        let rwd0: StackByteArray<32> = hasher.finalize()?;
+        let rwd: PwHash<Rwd, Salt> = PwHash::hash_with_salt(&rwd0, salt, Config::interactive())?;
+        Ok(rwd.into_parts().0)
+    }
 }
 
 #[derive(Debug)]
@@ -502,9 +508,9 @@ mod tests {
             secret[0] = 1;
             secret
         };
-        let (bfac, chal) = challenge(pwd).unwrap();
+        let (privchal, chal) = challenge(pwd).unwrap();
         let resp = respond(chal, secret).unwrap();
-        let rwd = finish(pwd, bfac, resp, salt).unwrap();
+        let rwd = privchal.finish(resp, salt).unwrap();
         println!("{}", hex::encode(rwd));
     }
 
