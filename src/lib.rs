@@ -15,7 +15,7 @@ use vararg::vararg;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::io::Cursor;
-use std::ops::{Range, Div};
+use std::ops::{RangeInclusive, Div};
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use strum_macros::IntoStaticStr;
 use blake2b_simd::{blake2b, Params};
@@ -472,11 +472,11 @@ fn encode(raw: &[u8], chars: &[char], size: usize) -> String {
     result.iter().rev().collect()
 }
 
-fn character_class_range(cc: &CharacterClass) -> Range<char> {
+fn character_class_range(cc: &CharacterClass) -> RangeInclusive<char> {
     match cc {
-        CharacterClass::Uppercase => 'A'..'Z',
-        CharacterClass::Lowercase => 'a'..'z',
-        CharacterClass::Digits => '0'..'9',
+        CharacterClass::Uppercase => 'A'..='Z',
+        CharacterClass::Lowercase => 'a'..='z',
+        CharacterClass::Digits => '0'..='9',
     }
 }
 
