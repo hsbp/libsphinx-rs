@@ -480,7 +480,7 @@ fn character_class_range(cc: &CharacterClass) -> RangeInclusive<char> {
     }
 }
 
-static CC_DERIVE_ORDER: &'static [CharacterClass] = &[CharacterClass::Uppercase, CharacterClass::Lowercase, CharacterClass::Digits];
+static CC_DERIVE_ORDER: &[CharacterClass] = &[CharacterClass::Uppercase, CharacterClass::Lowercase, CharacterClass::Digits];
 
 #[derive(Error, Debug)]
 pub enum DeriveError {
